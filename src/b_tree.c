@@ -52,9 +52,12 @@ void *t_node_setup(Tree_Node* node,B_Tree* TREE, void* buf){
     node->internal = node->bytes[0];
     node->nkeys = node->bytes[1];
     node->keys = malloc((TREE->keys_per_block+1) * TREE->key_size);
-    node->keys = node->bytes + 2;
+    node->keys = (void *) node->bytes + 2; // stop compilar from yelling
     
     node->lbas = malloc((TREE->lbas_per_block+1) * 4);
+    node->lbas = (void *) node->bytes + (JDISK_SECTOR_SIZE - TREE->lbas_per_block * 4);
+
+    return node;
     //node->lbas = JDISK_SECTOR_SIZE - node->bytes + 2 + 
 }
 
@@ -84,7 +87,7 @@ void *b_tree_attach(char *filename){
 
     jdisk_read(TREE->disk,TREE->root_lba,buf);
 
-    t_node_setup(node,TREE,buf);
+    TREE->root = t_node_setup(node,TREE,buf);
 
     return TREE;
 }
@@ -105,5 +108,12 @@ int b_tree_key_size(void *b_tree){
 }
 void b_tree_print_tree(void *b_tree){
     printf("PRINT TREE\n");
+    B_Tree *b = b_tree;
+    Tree_Node *t = b->root;
+    printf("%d\n",t->nkeys);
+    /*for(int i = 0; i < t->nkeys; i++){
+        printf("%s\n",t->keys[i]);
+    }*/
+    printf("%s\n",t->bytes);
     //t_node_read(b_tree,);
 }
