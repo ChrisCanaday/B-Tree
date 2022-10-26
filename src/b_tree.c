@@ -46,19 +46,42 @@ void *t_node_read(void * b_tree, unsigned int lba){
     jdisk_read(TREE->disk,lba,buf);
 }
 
-void *t_node_setup(Tree_Node* node,B_Tree* TREE, void* buf){
+void *t_node_setup(B_Tree* TREE, unsigned int lba){
+    unsigned char buf[JDISK_SECTOR_SIZE];
+    Tree_Node *node;
+
+    node = TREE->free_list;
+
+    // see if we have already read that block
+    while(node != NULL){
+        if(node->lba == lba) return node;
+        node = node->ptr;
+    }
+
+    node = malloc(sizeof(struct tnode));
+
+    jdisk_read(TREE->disk,lba,buf);
     memcpy(node->bytes,buf,JDISK_SECTOR_SIZE);
 
+    // set defaults and add it to the free_list
     node->internal = node->bytes[0];
     node->nkeys = node->bytes[1];
-    node->keys = malloc((TREE->keys_per_block+1) * TREE->key_size);
-    node->keys = (void *) node->bytes + 2; // stop compilar from yelling
+    node->lba = lba;
+    node->ptr = TREE->free_list;
+    if(TREE->free_list != NULL) TREE->free_list->parent = node;
+    TREE->free_list = node;
+    node->keys = malloc((TREE->keys_per_block+1) * sizeof(unsigned char *));
+
+    // set all the points
+    for(int i = 0; i < TREE->keys_per_block; i++){
+        node->keys[i] = node->bytes + 2 + TREE->key_size * i;
+    }
     
-    node->lbas = malloc((TREE->lbas_per_block+1) * 4);
+    // set the lbas
+    node->lbas = malloc((TREE->lbas_per_block+1) * sizeof(int));
     node->lbas = (void *) node->bytes + (JDISK_SECTOR_SIZE - TREE->lbas_per_block * 4);
 
     return node;
-    //node->lbas = JDISK_SECTOR_SIZE - node->bytes + 2 + 
 }
 
 void *b_tree_create(char *filename, long size, int key_size){
@@ -67,7 +90,7 @@ void *b_tree_create(char *filename, long size, int key_size){
 void *b_tree_attach(char *filename){
     unsigned char buf[JDISK_SECTOR_SIZE];
     B_Tree *TREE = malloc(sizeof(B_Tree));
-    Tree_Node *node = malloc(sizeof(struct tnode));
+    //Tree_Node *node = malloc(sizeof(struct tnode));
 
     TREE->disk = jdisk_attach(filename);
 
@@ -83,11 +106,7 @@ void *b_tree_attach(char *filename){
     TREE->keys_per_block = (JDISK_SECTOR_SIZE - 6) / (TREE->key_size + 4);
     TREE->lbas_per_block = TREE->keys_per_block + 1;
 
-    explicit_bzero(buf,JDISK_SECTOR_SIZE);
-
-    jdisk_read(TREE->disk,TREE->root_lba,buf);
-
-    TREE->root = t_node_setup(node,TREE,buf);
+    TREE->root = t_node_setup(TREE,TREE->root_lba);
 
     return TREE;
 }
@@ -96,24 +115,81 @@ unsigned int b_tree_insert(void *b_tree, void *key, void *record){
     // insert to the tree
     return 0;
 }
-unsigned int b_tree_find(void *b_tree, void *key){
-    // find a value in the tree
+
+unsigned int get_last_lba(Tree_Node *t){
+    return t->lbas[t->nkeys];
+}
+
+unsigned int recursive_find(B_Tree *TREE,Tree_Node *t, void *key){
+    int i;
+    unsigned int comp;
+    //printf("A\n");
+    //printf("0x%x\n",t);
+    //printf("%d\n",t->nkeys+1);
+    for(i = 0; i < t->nkeys; i++){
+        //printf("BBBBBB %d\n",i);
+        comp = memcmp(t->keys[i],key,TREE->key_size);
+        if(comp == 0 && t->internal == 0){
+            return t->lbas[i];
+        }else if(comp == 0 && t->internal == 1){
+            return get_last_lba(t_node_setup(TREE,t->lbas[i]));
+        }
+    }
+
+    //printf("C\n");
+
+    if(t->internal == 1){
+        for(i = 0; i < t->nkeys+1; i++){
+            //printf("IIIIIIIII: %d\n",i);
+            comp = recursive_find(TREE,t_node_setup(TREE,t->lbas[i]),key);
+            if(comp != 0) return comp;
+        }
+    }
+
     return 0;
 }
+
+unsigned int b_tree_find(void *b_tree, void *key){
+    // find a value in the tree
+    B_Tree *b = b_tree;
+    return recursive_find(b,b->root,key);
+}
+
 void *b_tree_disk(void *b_tree){
     return ((B_Tree*) b_tree)->disk;
 }
+
 int b_tree_key_size(void *b_tree){
     return ((B_Tree*) b_tree)->key_size;
 }
+
+void print_node(Tree_Node *t, B_Tree *TREE){
+    int i,j;
+    
+    printf("LBA 0x%08x. Internal: %d\n",t->lba,t->internal);
+    for(i = 0; i < t->nkeys+1; i++){
+        if(i < t->nkeys){
+            printf("Entry %d: Key: %-20s LBA: 0x%08x\n",i,t->keys[i],t->lbas[i]);
+        }else{
+            printf("Entry %d:                           LBA: 0x%08x\n",i,t->lbas[i]);
+        }
+    }
+    printf("\n");
+    for(i = 0; i < t->nkeys+1; i++){
+        if(t->internal == 1) print_node(t_node_setup(TREE,t->lbas[i]),TREE);
+    }
+}
+
 void b_tree_print_tree(void *b_tree){
-    printf("PRINT TREE\n");
     B_Tree *b = b_tree;
     Tree_Node *t = b->root;
-    printf("%d\n",t->nkeys);
-    /*for(int i = 0; i < t->nkeys; i++){
-        printf("%s\n",t->keys[i]);
-    }*/
-    printf("%s\n",t->bytes);
-    //t_node_read(b_tree,);
+    Tree_Node *i;
+
+    print_node(t,b);
+
+    i = b->free_list;
+    while(i != NULL){
+        printf("LBA 0x%08x.\n",i->lba);
+        i = i->ptr;
+    }
 }
