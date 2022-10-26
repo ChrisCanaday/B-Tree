@@ -79,6 +79,7 @@ void *t_node_setup(B_Tree* TREE, unsigned int lba){
 void *b_tree_create(char *filename, long size, int key_size){
     // create tree
 }
+
 void *b_tree_attach(char *filename){
     unsigned char buf[JDISK_SECTOR_SIZE];
     B_Tree *TREE = malloc(sizeof(B_Tree));
@@ -88,16 +89,19 @@ void *b_tree_attach(char *filename){
 
     jdisk_read(TREE->disk,0,buf);
 
+    // read in BTREE info
     memcpy(&TREE->key_size,buf,4);
     memcpy(&TREE->root_lba,buf+4,4);
     memcpy(&TREE->first_free_block,buf+8,8);
 
+    // set up some values
     TREE->size = jdisk_size(TREE->disk);
     TREE->num_lbas = TREE->size/JDISK_SECTOR_SIZE;
 
     TREE->keys_per_block = (JDISK_SECTOR_SIZE - 6) / (TREE->key_size + 4);
     TREE->lbas_per_block = TREE->keys_per_block + 1;
 
+    // go ahead and read the root node (maybe remove later)
     TREE->root = t_node_setup(TREE,TREE->root_lba);
 
     return TREE;
@@ -108,6 +112,7 @@ unsigned int b_tree_insert(void *b_tree, void *key, void *record){
     return 0;
 }
 
+// returns the last lba in the node (used to get data lba of upper node)
 unsigned int get_last_lba(Tree_Node *t){
     return t->lbas[t->nkeys];
 }
@@ -115,11 +120,9 @@ unsigned int get_last_lba(Tree_Node *t){
 unsigned int recursive_find(B_Tree *TREE,Tree_Node *t, void *key){
     int i;
     unsigned int comp;
-    //printf("A\n");
-    //printf("0x%x\n",t);
-    //printf("%d\n",t->nkeys+1);
+    
+    // check all keys in current node
     for(i = 0; i < t->nkeys; i++){
-        //printf("BBBBBB %d\n",i);
         comp = memcmp(t->keys[i],key,TREE->key_size);
         if(comp == 0 && t->internal == 0){
             return t->lbas[i];
@@ -128,11 +131,9 @@ unsigned int recursive_find(B_Tree *TREE,Tree_Node *t, void *key){
         }
     }
 
-    //printf("C\n");
-
+    // recursively check all children
     if(t->internal == 1){
         for(i = 0; i < t->nkeys+1; i++){
-            //printf("IIIIIIIII: %d\n",i);
             comp = recursive_find(TREE,t_node_setup(TREE,t->lbas[i]),key);
             if(comp != 0) return comp;
         }
