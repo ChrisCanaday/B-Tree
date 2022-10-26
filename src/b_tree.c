@@ -38,14 +38,6 @@ typedef struct {
   int flush;                    /* Should I flush sector[0] to disk after b_tree_insert() */
 } B_Tree;
 
-void *t_node_read(void * b_tree, unsigned int lba){
-    B_Tree *TREE = b_tree;
-    unsigned char buf[JDISK_SECTOR_SIZE];
-    Tree_Node *tnode = malloc(sizeof(struct tnode));
-
-    jdisk_read(TREE->disk,lba,buf);
-}
-
 void *t_node_setup(B_Tree* TREE, unsigned int lba){
     unsigned char buf[JDISK_SECTOR_SIZE];
     Tree_Node *node;
